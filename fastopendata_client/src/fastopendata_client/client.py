@@ -1,5 +1,5 @@
-'''
-FastOpenData client
+"""
+FastOpenData Client
 ===================
 
 The Python client for FastOpenData.
@@ -11,11 +11,13 @@ client itself to get a free API key that's suitable for evaluation purposes:
 >>> api_key = FastOpenData.get_api_key('YOUR_EMAIL_ADDRESS')
 
 Save your API key somewhere; you will use it each time you invoke the FastOpenData
-client.
+client. If you lose your key, you can call this method again with the same
+email address.
 
 The free API key is rate limited and not suitable for production purposes. To
 subscribe to the FastOpenData service and receive a key that will provide unlimited
-access, please visit https://fastopendata.com.
+access, please visit https://fastopendata.com. If you have questions about the
+service or your particular use-case, email zac@fastopendata.com.
 
 The main class for this client is `FastOpenData` which is invoked like so:
 
@@ -52,7 +54,7 @@ can do:
 
 Note that you have the option of specifying either `free_form_query` or the column
 names for structured address data, but not both. Doing so will raise an exception.
-'''
+"""
 
 import logging
 import pprint
@@ -67,10 +69,20 @@ logging.basicConfig(level=logging.INFO)
 
 
 class FastOpenDataSecurityException(Exception):
+    """
+    Raise if there is a problem with authentication such as
+    a missing or invalid API key.
+    """
+
     pass
 
 
 class FastOpenDataClientException(Exception):
+    """
+    Raise for problems caused when invoking the FastOpenData
+    client.
+    """
+
     pass
 
 
@@ -99,11 +111,11 @@ class FastOpenData:
 
     @staticmethod
     def get_api_key(email_address: str) -> str:
-        '''
+        """
         Get a free API key from FastOpenData for evaluation purposes.
-        '''
+        """
         raise NotImplementedError(
-            'The server is not yet live, and so this method is not implemented.'
+            "The server is not yet live, and so this method is not implemented."
         )
 
     def request(
@@ -117,6 +129,20 @@ class FastOpenData:
     ) -> dict:
         """
         Make a request from the FastOpenData service.
+
+        Args:
+            free_form_query: The free-form query to use for matching.
+            city: The city.
+            state: The state.
+            address1: The address line 1.
+            address2: The address line 2.
+            zip_code: The zip code.
+
+        Returns:
+            A dictionary containing the response data.
+
+        Raises:
+            FastOpenDataClientException: If the request fails.
         """
         if not (free_form_query or city or state or address or zip_code):
             raise FastOpenDataClientException(
@@ -158,6 +184,23 @@ class FastOpenData:
         Call FastOpenData for each row in the DataFrame. Append
         new columns to the DataFrame containing the resulting
         data.
+
+        Args:
+            df: A Pandas DataFrame.
+            free_form_query: The free-form query to use for matching.
+            address1: The address line 1.
+            address2: The address line 2.
+            city: The city.
+            state: The state.
+            zip_code: The zip code.
+
+        Returns:
+            None.
+
+        Raises:
+            FastOpenDataClientException: If the `free_form_query` and
+                `structured_query` arguments are both specified, or neither
+                is specified, or if the DataFrame is empty.
         """
         column_list = list(df.columns)
         match_mode = None
@@ -200,6 +243,7 @@ class FastOpenData:
                     column_name = ".".join([geography, attribute])
                     flat_response_dict[column_name] = value
             return flat_response_dict
+
         pbar = tqdm(total=df.shape[0])
         for index, row in df.iterrows():
             pbar.update(1)
@@ -226,7 +270,12 @@ class FastOpenData:
                 # the column names.
                 data_column_list = [column_name for column_name in flat_response.keys()]
                 # Finally add the columns with `np.NaT` values everywhere
-                df_to_concat = pd.DataFrame({column_name: [pd.NaT for _ in range(df.shape[1])] for column_name in data_column_list})
+                df_to_concat = pd.DataFrame(
+                    {
+                        column_name: [pd.NaT for _ in range(df.shape[1])]
+                        for column_name in data_column_list
+                    }
+                )
                 pd.concat([df, df_to_concat], axis=1)
             # Now we can continue with the rest of the rows.
             row_counter += 1
