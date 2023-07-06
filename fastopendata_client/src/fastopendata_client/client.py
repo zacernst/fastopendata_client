@@ -8,7 +8,7 @@ To use this client to retrieve data, you must have an API key. You can use the
 client itself to get a free API key that's suitable for evaluation purposes:
 
 >>> from fastopendata_client import FastOpenData
->>> api_key = FastOpenData.get_api_key('YOUR_EMAIL_ADDRESS')
+>>> api_key = FastOpenData.get_free_api_key('YOUR_EMAIL_ADDRESS')
 
 Save your API key somewhere; you will use it each time you invoke the FastOpenData
 client. If you lose your key, you can call this method again with the same
@@ -110,12 +110,34 @@ class FastOpenData:
         self.url = f"{self.scheme}://{self.ip_address}:{self.port}"
 
     @staticmethod
-    def get_api_key(email_address: str) -> str:
+    def get_free_api_key(email_address: str) -> str:
         """
         Get a free API key from FastOpenData for evaluation purposes.
         """
-        raise NotImplementedError(
-            "The server is not yet live, and so this method is not implemented."
+        free_api_key_url = f"http://localhost:8000/get_free_api_key"
+        headers = {
+            "Content-type": "application/json",
+        }
+        response = requests.get(
+            free_api_key_url, params={"email_address": email_address}, headers=headers
+        )
+        try:
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise e
+        api_key = response.json()["api_key"]
+        print(
+            "Your API key is:\n"
+            f"{api_key}\n"
+            "\n"
+            "To test your client, try:\n"
+            ">>> from fastopendata_client import FastOpenData\n"
+            f'>>> session = FastOpenData(api_key="{api_key}")\n'
+            '>>> session.request(free_form_query="1984 Lower Hawthorne Trail, Cairo, GA 39828")\n'
+            "\n"
+            "You should receive a dictionary with a lot of data about that address.\n"
+            "\n"
+            "Questions? Contact zac@fastopendata.com"
         )
 
     def request(
@@ -179,11 +201,12 @@ class FastOpenData:
         city: str = "city",
         state: str = "state",
         zip_code: str = "zip_code",
+        progressbar: bool = True,
     ) -> None:
         """
         Call FastOpenData for each row in the DataFrame. Append
         new columns to the DataFrame containing the resulting
-        data.
+        data. We'll want to have a batch endpoint eventually.
 
         Args:
             df: A Pandas DataFrame.
@@ -239,14 +262,18 @@ class FastOpenData:
             """
             flat_response_dict = {}
             for geography, subdict in response_dict.items():
+                if not subdict:
+                    continue
                 for attribute, value in subdict.items():
                     column_name = ".".join([geography, attribute])
                     flat_response_dict[column_name] = value
             return flat_response_dict
 
-        pbar = tqdm(total=df.shape[0])
+        if progressbar:
+            pbar = tqdm(total=df.shape[0])
         for index, row in df.iterrows():
-            pbar.update(1)
+            if progressbar:
+                pbar.update(1)
             if match_mode == "FREE_FORM_QUERY":
                 request_params = {
                     "free_form_query": row[free_form_query],
@@ -291,6 +318,7 @@ if __name__ == "__main__":
     data = session.request("1984 Lower Hawthorne Trail")
     pprint.pprint(data)
     sample_dataframe_data = []
+    import pdb; pdb.set_trace()
     for _ in range(100):
         address = random_address.real_random_address_by_state("GA")
         # Commented out for development -- dev Nominatim has only Georgia
