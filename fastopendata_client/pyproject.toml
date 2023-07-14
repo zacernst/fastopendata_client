@@ -2,9 +2,12 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[project.scripts]
+fastopendata = "fastopendata_client.cli_entry:cli_entry"
+
 [project]
 name = "fastopendata_client"
-version = "0.0.8"
+version = "0.0.16"
 authors = [
   { name="Zachary Ernst", email="zac.ernst@gmail.com" },
 ]
@@ -20,3 +23,5 @@ classifiers = [
 [project.urls]
 "Homepage" = "https://github.com/zacernst/fastopendata"
 "Bug Tracker" = "https://github.com/zacernst/fastopendata/issues"
+
+

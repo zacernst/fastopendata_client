@@ -60,6 +60,7 @@ import logging
 import pprint
 
 import numpy as np
+import os
 import pandas as pd
 import random_address
 import requests
@@ -308,6 +309,8 @@ class FastOpenData:
             row_counter += 1
             for column_name, value in flat_response.items():
                 df.loc[index, column_name] = value
+
+
 
 
 if __name__ == "__main__":

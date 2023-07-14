@@ -1,3 +1,1 @@
-class HiThere:
-    def __init__(self):
-        pass
+from .client import FastOpenData
