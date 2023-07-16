@@ -7,7 +7,7 @@ fastopendata = "fastopendata_client.cli_entry:cli_entry"
 
 [project]
 name = "fastopendata_client"
-version = "0.0.17"
+version = "0.0.19"
 authors = [
   { name="Zachary Ernst", email="zac.ernst@gmail.com" },
 ]
@@ -19,7 +19,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-requirements = [
+dependencies = [
     "anyio==3.7.1",
     "bandit==1.7.5",
     "bleach==6.0.0",
