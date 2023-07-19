@@ -130,11 +130,34 @@ def get_api_key():
     Get a free API key for FastOpenData.
     '''
     email_address = click.prompt('Enter your email address')
-    regex = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b'
+    email_regex = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b'
  
-    if(not re.fullmatch(regex, email_address)):
+    if(not re.fullmatch(email_regex, email_address)):
         print(f'Email {email_address} is not valid.')
-    pass
+        return 
+
+    response_dict = FastOpenData.get_free_api_key(email_address=email_address)
+    
+    if response_dict['status'] == 'EXPIRE_OLD_KEY' or response_dict['status'] == 'SUCCESS':
+        api_key = response_dict['api_key']
+        print(
+            "Your API key is:\n"
+            f"{api_key}\n"
+            "\n"
+            "To test your client, try:\n"
+            ">>> from fastopendata_client import FastOpenData\n"
+            f'>>> session = FastOpenData(api_key="{api_key}")\n'
+            '>>> session.request(free_form_query="1984 Lower Hawthorne Trail, Cairo, GA 39828")\n'
+            "\n"
+            "You should receive a dictionary with a lot of data about that address.\n"
+            "\n"
+            "Questions? Contact zac@fastopendata.com"
+        )
+    if response_dict['status'] == 'EXPIRE_OLD_KEY':
+        print(
+            '\n'
+            'Note: This email address already had an API key. The old one will be expired.'
+        )
 
 
 if __name__ == "__main__":

@@ -126,20 +126,8 @@ class FastOpenData:
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
             raise e
-        api_key = response.json()["api_key"]
-        print(
-            "Your API key is:\n"
-            f"{api_key}\n"
-            "\n"
-            "To test your client, try:\n"
-            ">>> from fastopendata_client import FastOpenData\n"
-            f'>>> session = FastOpenData(api_key="{api_key}")\n'
-            '>>> session.request(free_form_query="1984 Lower Hawthorne Trail, Cairo, GA 39828")\n'
-            "\n"
-            "You should receive a dictionary with a lot of data about that address.\n"
-            "\n"
-            "Questions? Contact zac@fastopendata.com"
-        )
+        response_dict = response.json()
+        return response_dict
 
     def request(
         self,
@@ -311,8 +299,6 @@ class FastOpenData:
                 df.loc[index, column_name] = value
 
 
-
-
 if __name__ == "__main__":
     """
     Just for testing.
@@ -321,7 +307,6 @@ if __name__ == "__main__":
     data = session.request("1984 Lower Hawthorne Trail")
     pprint.pprint(data)
     sample_dataframe_data = []
-    import pdb; pdb.set_trace()
     for _ in range(100):
         address = random_address.real_random_address_by_state("GA")
         # Commented out for development -- dev Nominatim has only Georgia
