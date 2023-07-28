@@ -1,4 +1,5 @@
 import click
+from csv import DictReader
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ logging.basicConfig(level=logging.INFO)
     
 FIGLET = Figlet(font='slant')
 BANNER = FIGLET.renderText("FastOpenData")
+ADDRESS_DATA_BATCH_SIZE=100
 
 def check_api_key(api_key):
     '''
@@ -109,6 +111,9 @@ def csv(api_key, input_csv, output_csv, free_form_query, address1, address2, cit
     Append data from FastOpenData to an existing CSV file.
     '''
     api_key = check_api_key(api_key)
+    if not free_form_query:
+        print('Need to specify column containing address information')
+        sys.exit(1)
     if not input_csv:
         print('You must provide the path of a CSV file.')
         sys.exit(1)
@@ -121,7 +126,56 @@ def csv(api_key, input_csv, output_csv, free_form_query, address1, address2, cit
     if os.path.isfile(output_csv): 
         print(f'Output file {output_csv} already exists.')
         sys.exit(1)
-    pass
+    
+    client = FastOpenData(api_key=api_key)
+
+    counter = 0
+    with open(input_csv, 'r') as f:
+        reader = DictReader(f)
+        batch = []
+        response_list = []
+        for row in reader:
+            counter += 1
+            batch.append(row)
+            if len(batch) % ADDRESS_DATA_BATCH_SIZE == 0:
+                response = client.send_batch(
+                    batch, 
+                    free_form_query=free_form_query, 
+                    address1=address1, 
+                    address2=address2, 
+                    city=city, 
+                    state=state, 
+                    zip_code=zip_code,
+                )
+                # Process the response here
+                response_list += response
+                batch = []
+        if batch:
+            response = client.send_batch(
+                batch, 
+                free_form_query=free_form_query, 
+                address1=address1, 
+                address2=address2, 
+                city=city, 
+                state=state, 
+                zip_code=zip_code,
+            )
+            response_list += response
+        geography_keys = [
+            'cbsa_2013', 'census_block_group_2019', 'congressional_district', 
+            'county', 'puma', 'school_district', 'state', 'tract',
+        ]
+        for response in response_list:
+            response_value_dict = {}
+            for geography_key in geography_keys:
+                for data_point_name, data_point_value in response['_fod_data_response'][geography_key].items():
+                    flattened_key = f'{geography_key}.{data_point_name}'
+                    response_value_dict[flattened_key] = data_point_value
+            del response['_fod_data_response']
+            response.update(response_value_dict)
+            import pdb; pdb.set_trace()
+
+        import pdb; pdb.set_trace()
 
 
 @cli_entry.command()

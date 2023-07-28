@@ -58,9 +58,8 @@ names for structured address data, but not both. Doing so will raise an exceptio
 
 import logging
 import pprint
+from typing import Dict, List, Optional
 
-import numpy as np
-import os
 import pandas as pd
 import random_address
 import requests
@@ -155,7 +154,7 @@ class FastOpenData:
         Raises:
             FastOpenDataClientException: If the request fails.
         """
-        if not (free_form_query or city or state or address or zip_code):
+        if not (free_form_query or city or state or address1 or zip_code):
             raise FastOpenDataClientException(
                 "Must include either `free_form_query` or some combination of "
                 "`city`, `state`, `address` and `zip_code` when making a request."
@@ -297,6 +296,33 @@ class FastOpenData:
             row_counter += 1
             for column_name, value in flat_response.items():
                 df.loc[index, column_name] = value
+
+    def send_batch(
+        self,
+        batch: List[Dict],
+        free_form_query: Optional[str] = None,
+        address1: Optional[str] = None,
+        address2: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+    ) -> List[Dict]:
+        """
+        Rename keys to match `free_form_query`, etc. Then send the
+        list of dictionaries to the batch endpoint.
+        """
+        for address in batch:
+            data = self.request(
+                free_form_query=address.get(free_form_query, None),
+                address1=address.get(address1, None),
+                address2=address.get(address2, None),
+                city=address.get(city, None),
+                state=address.get(state, None),
+                zip_code=address.get(zip_code, None),
+            )
+            data = {'_fod_data_response': data}
+            address.update(data)  # in-place updating (check this)
+        return batch
 
 
 if __name__ == "__main__":
