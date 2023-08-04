@@ -1,5 +1,6 @@
 import click
-from csv import DictReader
+from csv import DictReader, DictWriter
+import hashlib
 import json
 import logging
 import os
@@ -130,6 +131,11 @@ def csv(api_key, input_csv, output_csv, free_form_query, address1, address2, cit
     client = FastOpenData(api_key=api_key)
 
     counter = 0
+    geography_keys = [
+        'cbsa_2013', 'census_block_group_2019', 'congressional_district', 
+        'county', 'puma', 'school_district', 'state', 'tract',
+    ]
+    
     with open(input_csv, 'r') as f:
         reader = DictReader(f)
         batch = []
@@ -138,7 +144,7 @@ def csv(api_key, input_csv, output_csv, free_form_query, address1, address2, cit
             counter += 1
             batch.append(row)
             if len(batch) % ADDRESS_DATA_BATCH_SIZE == 0:
-                response = client.send_batch(
+                batch_response = client.send_batch(
                     batch, 
                     free_form_query=free_form_query, 
                     address1=address1, 
@@ -148,10 +154,21 @@ def csv(api_key, input_csv, output_csv, free_form_query, address1, address2, cit
                     zip_code=zip_code,
                 )
                 # Process the response here
-                response_list += response
+                # Run 'update' on the `batch` list, appending `batch_response`
+                # TODO: DRY this out
+                # Move code from cli_entry to client
+                for response in batch_response:
+                    for geography_key in geography_keys:
+                        for data_point_name, data_point_value in response['_fod_data_response'][geography_key].items():
+                            flattened_key = f'{geography_key}.{data_point_name}'
+                            response[flattened_key] = data_point_value
+                    del response['_fod_data_response']
+                for batch_item, response_item in zip(batch, batch_response):
+                    batch_item.update(response_item)
+                response_list += batch
                 batch = []
         if batch:
-            response = client.send_batch(
+            batch_response = client.send_batch(
                 batch, 
                 free_form_query=free_form_query, 
                 address1=address1, 
@@ -160,22 +177,23 @@ def csv(api_key, input_csv, output_csv, free_form_query, address1, address2, cit
                 state=state, 
                 zip_code=zip_code,
             )
-            response_list += response
-        geography_keys = [
-            'cbsa_2013', 'census_block_group_2019', 'congressional_district', 
-            'county', 'puma', 'school_district', 'state', 'tract',
-        ]
-        for response in response_list:
-            response_value_dict = {}
-            for geography_key in geography_keys:
-                for data_point_name, data_point_value in response['_fod_data_response'][geography_key].items():
-                    flattened_key = f'{geography_key}.{data_point_name}'
-                    response_value_dict[flattened_key] = data_point_value
-            del response['_fod_data_response']
-            response.update(response_value_dict)
-            import pdb; pdb.set_trace()
-
-        import pdb; pdb.set_trace()
+            for response in batch_response:
+                for geography_key in geography_keys:
+                    for data_point_name, data_point_value in response['_fod_data_response'][geography_key].items():
+                        flattened_key = f'{geography_key}.{data_point_name}'
+                        response[flattened_key] = data_point_value
+                del response['_fod_data_response']
+            for batch_item, response_item in zip(batch, batch_response):
+                batch_item.update(response_item)
+            response_list += batch
+            batch = []
+        
+    with open(output_csv, 'w') as o:
+        fieldnames = list(response_list[0].keys())
+        output_csv = DictWriter(o, fieldnames=fieldnames)
+        output_csv.writeheader()
+        for row in response_list:
+            output_csv.writerow(row)
 
 
 @cli_entry.command()
