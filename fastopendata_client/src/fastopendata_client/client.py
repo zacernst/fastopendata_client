@@ -56,8 +56,11 @@ Note that you have the option of specifying either `free_form_query` or the colu
 names for structured address data, but not both. Doing so will raise an exception.
 """
 
+from csv import DictReader, DictWriter
 import logging
+import os
 import pprint
+import sys
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -66,6 +69,8 @@ import requests
 from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
+
+ADDRESS_DATA_BATCH_SIZE = 100
 
 
 class FastOpenDataSecurityException(Exception):
@@ -320,9 +325,111 @@ class FastOpenData:
                 state=address.get(state, None),
                 zip_code=address.get(zip_code, None),
             )
-            data = {'_fod_data_response': data}
+            data = {"_fod_data_response": data}
             address.update(data)  # in-place updating (check this)
         return batch
+
+    def append_to_csv(
+        self,
+        input_csv: str = "",
+        output_csv: str = "",
+        free_form_query: Optional[str] = None,
+        address1: Optional[str] = None,
+        address2: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+    ):
+        """
+        Append data from FastOpenData to an existing CSV file.
+        """
+        if not free_form_query:
+            print('Need to specify column containing address information')
+            sys.exit(1)
+        if not input_csv:
+            print('You must provide the path of a CSV file.')
+            sys.exit(1)
+        if not output_csv:
+            print('You must provide the path for the output CSV.')
+            sys.exit(1)
+        if not os.path.isfile(input_csv): 
+            print(f'CSV file {input_csv} does not exist.')
+            sys.exit(1)
+        if os.path.isfile(output_csv): 
+            print(f'Output file {output_csv} already exists.')
+            sys.exit(1)
+
+        counter = 0
+        geography_keys = [
+            "cbsa_2013",
+            "census_block_group_2019",
+            "congressional_district",
+            "county",
+            "puma",
+            "school_district",
+            "state",
+            "tract",
+        ]
+
+        with open(input_csv, "r") as f:
+            reader = DictReader(f)
+            batch = []
+            response_list = []
+            for row in reader:
+                counter += 1
+                batch.append(row)
+                if len(batch) % ADDRESS_DATA_BATCH_SIZE == 0:
+                    batch_response = self.send_batch(
+                        batch,
+                        free_form_query=free_form_query,
+                        address1=address1,
+                        address2=address2,
+                        city=city,
+                        state=state,
+                        zip_code=zip_code,
+                    )
+                    for response in batch_response:
+                        for geography_key in geography_keys:
+                            for data_point_name, data_point_value in response[
+                                "_fod_data_response"
+                            ][geography_key].items():
+                                flattened_key = f"{geography_key}.{data_point_name}"
+                                response[flattened_key] = data_point_value
+                        del response["_fod_data_response"]
+                    for batch_item, response_item in zip(batch, batch_response):
+                        batch_item.update(response_item)
+                    response_list += batch
+                    batch = []
+            if batch:
+                batch_response = self.send_batch(
+                    batch,
+                    free_form_query=free_form_query,
+                    address1=address1,
+                    address2=address2,
+                    city=city,
+                    state=state,
+                    zip_code=zip_code,
+                )
+                for response in batch_response:
+                    for geography_key in geography_keys:
+                        for data_point_name, data_point_value in response[
+                            "_fod_data_response"
+                        ][geography_key].items():
+                            flattened_key = f"{geography_key}.{data_point_name}"
+                            response[flattened_key] = data_point_value
+                    del response["_fod_data_response"]
+                for batch_item, response_item in zip(batch, batch_response):
+                    batch_item.update(response_item)
+                response_list += batch
+                batch = []
+
+        # TODO: Change this to stream rows one by one
+        with open(output_csv, "w") as o:
+            fieldnames = list(response_list[0].keys())
+            output_csv = DictWriter(o, fieldnames=fieldnames)
+            output_csv.writeheader()
+            for row in response_list:
+                output_csv.writerow(row)
 
 
 if __name__ == "__main__":
