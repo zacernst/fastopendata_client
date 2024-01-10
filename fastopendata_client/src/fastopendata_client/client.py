@@ -56,21 +56,26 @@ Note that you have the option of specifying either `free_form_query` or the colu
 names for structured address data, but not both. Doing so will raise an exception.
 """
 
-from csv import DictReader, DictWriter
 import logging
 import os
 import pprint
 import sys
+from csv import DictReader, DictWriter
 from typing import Dict, List, Optional
 
 import pandas as pd
 import random_address
 import requests
+import toml
 from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
 
-ADDRESS_DATA_BATCH_SIZE = 100
+CONFIG = toml.load("config.toml")
+BATCH_SIZE = CONFIG["client"]["batch_size"]
+IP_ADDRESS = CONFIG["server"]["ip_address"]
+PORT = CONFIG["server"]["port"]
+SCHEME = CONFIG["server"]["scheme"]
 
 
 class FastOpenDataSecurityException(Exception):
@@ -98,9 +103,9 @@ class FastOpenData:
 
     def __init__(
         self,
-        ip_address: str = "localhost",
-        port: int = 8000,
-        scheme: str = "http",
+        ip_address: str = IP_ADDRESS,
+        port: int = PORT,
+        scheme: str = SCHEME,
         api_key: str = None,
     ) -> None:
         self.api_key = api_key
@@ -109,17 +114,23 @@ class FastOpenData:
         self.scheme = scheme
         if not self.api_key:
             raise FastOpenDataSecurityException(
-                "Must specify an API key when instantiating the `FastOpenData` class "
+                "You must specify an API key when instantiating the `FastOpenData` class "
                 "by passing `api_key=YOUR_API_KEY`."
             )
         self.url = f"{self.scheme}://{self.ip_address}:{self.port}"
 
-    @staticmethod
-    def get_free_api_key(email_address: str) -> str:
+    @classmethod
+    def get_free_api_key(cls, email_address: str) -> str:
         """
         Get a free API key from FastOpenData for evaluation purposes.
+
+        Args:
+            email_address: Your email address.
+        
+        Returns:
+            A free API key.
         """
-        free_api_key_url = f"http://localhost:8000/get_free_api_key"
+        free_api_key_url = f"{SCHEME}://{IP_ADDRESS}:{PORT}/get_free_api_key"
         headers = {
             "Content-type": "application/json",
         }
@@ -135,12 +146,12 @@ class FastOpenData:
 
     def request(
         self,
-        free_form_query: str = None,
-        city: str = None,
-        state: str = None,
-        address1: str = None,
-        address2: str = None,
-        zip_code: str = None,
+        free_form_query: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        address1: Optional[str] = None,
+        address2: Optional[str] = None,
+        zip_code: Optional[str] = None,
     ) -> dict:
         """
         Make a request from the FastOpenData service.
@@ -172,10 +183,14 @@ class FastOpenData:
             )
         headers = {
             "Content-type": "application/json",
-            "x-api-key": self.api_key,
         }
         response = requests.get(
-            self.url, params={"free_form_query": free_form_query}, headers=headers
+            self.url,
+            params={
+                "free_form_query": free_form_query,
+                "api_key": self.api_key
+            },
+            headers=headers,
         )
 
         try:
@@ -188,13 +203,13 @@ class FastOpenData:
     def append_to_dataframe(
         self,
         df: pd.DataFrame,
-        free_form_query: str = "free_form_query",
-        address1: str = "address1",
-        address2: str = "address2",
-        city: str = "city",
-        state: str = "state",
-        zip_code: str = "zip_code",
-        progressbar: bool = True,
+        free_form_query: Optional[str] = "free_form_query",
+        address1: Optional[str] = "address1",
+        address2: Optional[str] = "address2",
+        city: Optional[str] = "city",
+        state: Optional[str] = "state",
+        zip_code: Optional[str] = "zip_code",
+        progressbar: Optional[bool] = True,
     ) -> None:
         """
         Call FastOpenData for each row in the DataFrame. Append
@@ -344,19 +359,19 @@ class FastOpenData:
         Append data from FastOpenData to an existing CSV file.
         """
         if not free_form_query:
-            print('Need to specify column containing address information')
+            print("Need to specify column containing address information")
             sys.exit(1)
         if not input_csv:
-            print('You must provide the path of a CSV file.')
+            print("You must provide the path of a CSV file.")
             sys.exit(1)
         if not output_csv:
-            print('You must provide the path for the output CSV.')
+            print("You must provide the path for the output CSV.")
             sys.exit(1)
-        if not os.path.isfile(input_csv): 
-            print(f'CSV file {input_csv} does not exist.')
+        if not os.path.isfile(input_csv):
+            print(f"CSV file {input_csv} does not exist.")
             sys.exit(1)
-        if os.path.isfile(output_csv): 
-            print(f'Output file {output_csv} already exists.')
+        if os.path.isfile(output_csv):
+            print(f"Output file {output_csv} already exists.")
             sys.exit(1)
 
         counter = 0
@@ -378,7 +393,7 @@ class FastOpenData:
             for row in reader:
                 counter += 1
                 batch.append(row)
-                if len(batch) % ADDRESS_DATA_BATCH_SIZE == 0:
+                if len(batch) % BATCH_SIZE == 0:
                     batch_response = self.send_batch(
                         batch,
                         free_form_query=free_form_query,
@@ -432,12 +447,12 @@ class FastOpenData:
                 output_csv.writerow(row)
 
 
-if __name__ == "__main__":
+def main():
     """
     Just for testing.
     """
     session = FastOpenData(api_key="foobar")
-    data = session.request("1984 Lower Hawthorne Trail")
+    data = session.request(free_form_query="1984 Lower Hawthorne Trail")
     pprint.pprint(data)
     sample_dataframe_data = []
     for _ in range(100):
@@ -458,3 +473,7 @@ if __name__ == "__main__":
         # pprint.pprint(data)
     sample_dataframe = pd.DataFrame(sample_dataframe_data)
     session.append_to_dataframe(sample_dataframe, free_form_query="free_form_query")
+
+
+if __name__ == "__main__":
+    main()

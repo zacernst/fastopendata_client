@@ -1,0 +1,7 @@
+[server]
+ip_address = "fastopendata.net"
+port = 8000
+scheme = "https"
+
+[client]
+batch_size = 100
