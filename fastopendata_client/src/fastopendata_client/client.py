@@ -58,6 +58,7 @@ names for structured address data, but not both. Doing so will raise an exceptio
 
 import logging
 import os
+import pathlib
 import pprint
 import sys
 from csv import DictReader, DictWriter
@@ -71,7 +72,9 @@ from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
 
-CONFIG = toml.load("config.toml")
+SCRIPT_PATH = list(pathlib.Path(__file__).parts[:-1]) + ['config.toml']
+SCRIPT_PATH = pathlib.Path(*SCRIPT_PATH)
+CONFIG = toml.load(SCRIPT_PATH)
 BATCH_SIZE = CONFIG["client"]["batch_size"]
 IP_ADDRESS = CONFIG["server"]["ip_address"]
 PORT = CONFIG["server"]["port"]
