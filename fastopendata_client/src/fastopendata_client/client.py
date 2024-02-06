@@ -195,7 +195,21 @@ class FastOpenData:
             },
             headers=headers,
         )
-
+        if response.json().get('detail', None) == 'GeographyException':
+            return {
+                'success': False,
+                'detail': 'GeographyException',
+            }
+        elif response.json().get('detail', None) == 'IncompleteDataException':
+            return {
+                'success': False,
+                'detail': 'IncompleteDataException',
+            }
+        elif response.json().get('detail', None) == 'NominatimQueryException':
+            return {
+                'success': False,
+                'detail': 'NominatimQueryException',
+            }
         try:
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
