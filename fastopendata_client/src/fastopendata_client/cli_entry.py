@@ -5,6 +5,10 @@ import os
 import re
 import sys
 
+import rich
+from rich.panel import Panel
+from rich.console import Console, Group
+from rich.syntax import Syntax
 from pyfiglet import Figlet
 from fastopendata_client.client import FastOpenData
 
@@ -151,23 +155,45 @@ def get_api_key():
         or response_dict["status"] == "SUCCESS"
     ):
         api_key = response_dict["api_key"]
-        print(
-            "Your API key is:\n"
-            f"{api_key}\n"
-            "\n"
-            "To test your client, try:\n"
-            ">>> from fastopendata_client import FastOpenData\n"
-            f'>>> session = FastOpenData(api_key="{api_key}")\n'
-            '>>> session.request(free_form_query="1984 Lower Hawthorne Trail, Cairo, GA 39828")\n'
-            "\n"
-            "You should receive a dictionary with a lot of data about that address.\n"
-            "\n"
-            "Questions? Contact zac@fastopendata.com"
+        python_code = """
+>>> from fastopendata_client import FastOpenData
+>>> session = FastOpenData(api_key="{api_key}")
+>>> session.request(free_form_query="1984 Lower Hawthorne Trail, Cairo, GA 39828")
+""".format(
+            api_key=api_key
         )
+
+        bash_code = """
+fastopendata get --api-key="{api_key}" --free-form-query="1984 Lower Hawthorne Trail"
+""".format(
+            api_key=api_key
+        )
+        msg_1 = """
+Your API key is:\n
+[bold]{api_key}[/bold]\n
+To test your client using the command-line tool, try:
+""".format(
+            api_key=api_key
+        )
+
+        msg_2 = """If you want to try writing some Python code:"""
+
+        msg_3 = """If you don't want to keep entering your API key, you can set an environment variable `FASTOPENDATA_API_KEY`."""
+
+        msg_4 = """For API documentation, visit <https://fastopendata.com>"""
+
+        group = Group(
+            msg_1,
+            Syntax(bash_code, "bash", theme="dracula"),
+            msg_2,
+            Syntax(python_code, "python", theme="dracula", line_numbers=False),
+            msg_3,
+            msg_4,
+        )
+        rich.print(Panel(group, title="[green]Success!", subtitle=None))
     if response_dict["status"] == "EXPIRE_OLD_KEY":
-        print(
-            "\n"
-            "Note: This email address already had an API key. The old one will be expired."
+        rich.print(
+            "[red]Note: This email address already had an API key. The old one will be expired.[/red]"
         )
 
 
