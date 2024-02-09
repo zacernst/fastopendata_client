@@ -1,17 +1,17 @@
-import click
 import json
 import logging
 import os
 import re
 import sys
 
+import click
 import rich
-from rich.panel import Panel
-from rich.console import Console, Group
-from rich.syntax import Syntax
 from pyfiglet import Figlet
-from fastopendata_client.client import FastOpenData
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.syntax import Syntax
 
+from fastopendata_client.client import FastOpenData
 
 logging.basicConfig(level=logging.INFO)
 
@@ -88,7 +88,7 @@ def get(free_form_query, address1, address2, city, state, zip_code, api_key):
     client = FastOpenData(api_key=api_key)
     data = client.request(free_form_query=free_form_query)
     if data:
-        print(json.dumps(data, indent=2))
+        rich.print(json.dumps(data, indent=2))
     else:
         print("Some kind of error")
         sys.exit(1)
@@ -156,15 +156,18 @@ def get_api_key():
     ):
         api_key = response_dict["api_key"]
         python_code = """
->>> from fastopendata_client import FastOpenData
->>> session = FastOpenData(api_key="{api_key}")
->>> session.request(free_form_query="1984 Lower Hawthorne Trail, Cairo, GA 39828")
+from fastopendata_client import FastOpenData
+session = FastOpenData(api_key="{api_key}")
+session.request(
+    free_form_query="1984 Lower Hawthorne Trail, Cairo, GA 39828"
+)
 """.format(
             api_key=api_key
         )
 
         bash_code = """
-fastopendata get --api-key="{api_key}" --free-form-query="1984 Lower Hawthorne Trail"
+fastopendata get --api-key="{api_key}" \\
+    --free-form-query="1984 Lower Hawthorne Trail"
 """.format(
             api_key=api_key
         )
@@ -187,7 +190,7 @@ To test your client using the command-line tool, try:
             Syntax(bash_code, "bash", theme="dracula"),
             msg_2,
             Syntax(python_code, "python", theme="dracula", line_numbers=False),
-            msg_3,
+            # msg_3,
             msg_4,
         )
         rich.print(Panel(group, title="[green]Success!", subtitle=None))
