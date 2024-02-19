@@ -62,7 +62,8 @@ def cli_entry():
 @click.option("--state", default=None, help="state")
 @click.option("--zip-code", default=None, help="zip code")
 @click.option("--api-key", default=None, help="API key")
-def get(free_form_query, address1, address2, city, state, zip_code, api_key):
+@click.option("--pretty", is_flag=True, default=True, help="Pretty-print the JSON response")
+def get(free_form_query, address1, address2, city, state, zip_code, api_key, pretty):
     """Get a single data payload for one address."""
     api_key = check_api_key(api_key)
 
@@ -87,11 +88,13 @@ def get(free_form_query, address1, address2, city, state, zip_code, api_key):
     logging.debug(f"fastopendata got query: {free_form_query}")
     client = FastOpenData(api_key=api_key)
     data = client.request(free_form_query=free_form_query)
-    if data:
-        rich.print(json.dumps(data, indent=2))
-    else:
-        print("Some kind of error")
+    if not data:
+        print("No data found for the address.")
         sys.exit(1)
+    if pretty:
+        rich.print(data)
+    else:
+        print(json.dumps(data))
 
 
 @cli_entry.command()
