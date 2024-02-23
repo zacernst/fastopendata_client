@@ -5,6 +5,7 @@ import re
 import sys
 
 import click
+from pydantic import BaseModel, Optional
 import rich
 from pyfiglet import Figlet
 from rich.console import Console, Group
@@ -45,11 +46,14 @@ def check_api_key(api_key):
 
 @click.group()
 def cli_entry():
-    """This is the command-line tool for FastOpenData.
-
+    """
+    This is the command-line tool for FastOpenData. \n
+    
     Use it to get an API key, retrieve data for a single address,
     or append data to an existing CSV file.
+
     """
+
 
 
 @cli_entry.command()
@@ -63,7 +67,16 @@ def cli_entry():
 @click.option("--zip-code", default=None, help="zip code")
 @click.option("--api-key", default=None, help="API key")
 @click.option("--pretty", is_flag=True, default=True, help="Pretty-print the JSON response")
-def get(free_form_query, address1, address2, city, state, zip_code, api_key, pretty):
+def get(
+    free_form_query: Optional[str], 
+    address1: Optional[str], 
+    address2: Optional[str], 
+    city: Optional[str], 
+    state: Optional[str], 
+    zip_code: Optional[str], 
+    api_key: Optional[str], 
+    pretty: Optional[bool]
+):
     """Get a single data payload for one address."""
     api_key = check_api_key(api_key)
 

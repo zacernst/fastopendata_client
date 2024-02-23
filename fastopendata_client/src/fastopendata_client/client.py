@@ -99,6 +99,16 @@ class FastOpenDataClientException(Exception):
     pass
 
 
+class FastOpenDataConnectionException(Exception):
+    '''
+    Raise for problems caused when connecting to the FastOpenData
+    server.
+    '''
+
+    pass
+
+
+
 class FastOpenData:
     """
     The client for interacting with the FastOpenData service.
@@ -137,9 +147,14 @@ class FastOpenData:
         headers = {
             "Content-type": "application/json",
         }
-        response = requests.get(
-            free_api_key_url, params={"email_address": email_address}, headers=headers
-        )
+        try:
+            response = requests.get(
+                free_api_key_url, params={"email_address": email_address}, headers=headers
+            )
+        except Exception as e:
+            raise FastOpenDataConnectionException(
+                "Problem connecting to the FastOpenData server."
+            )
         try:
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
