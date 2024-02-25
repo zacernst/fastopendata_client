@@ -3,16 +3,16 @@ import logging
 import os
 import re
 import sys
+from typing import Optional
 
 import click
-from pydantic import BaseModel, Optional
 import rich
 from pyfiglet import Figlet
-from rich.console import Console, Group
+from rich.console import Group
 from rich.panel import Panel
 from rich.syntax import Syntax
 
-from fastopendata_client.client import FastOpenData
+from fastopendata_client.client import FastOpenData, FastOpenDataConnectionException
 
 logging.basicConfig(level=logging.INFO)
 
@@ -66,7 +66,7 @@ def cli_entry():
 @click.option("--state", default=None, help="state")
 @click.option("--zip-code", default=None, help="zip code")
 @click.option("--api-key", default=None, help="API key")
-@click.option("--pretty", is_flag=True, default=True, help="Pretty-print the JSON response")
+@click.option("--no-pretty-print", is_flag=True, default=False, help="Suppress pretty-printing the JSON response")
 def get(
     free_form_query: Optional[str], 
     address1: Optional[str], 
@@ -75,7 +75,7 @@ def get(
     state: Optional[str], 
     zip_code: Optional[str], 
     api_key: Optional[str], 
-    pretty: Optional[bool]
+    no_pretty_print: Optional[bool]
 ):
     """Get a single data payload for one address."""
     api_key = check_api_key(api_key)
@@ -104,10 +104,10 @@ def get(
     if not data:
         print("No data found for the address.")
         sys.exit(1)
-    if pretty:
-        rich.print(data)
-    else:
+    if no_pretty_print:
         print(json.dumps(data))
+    else:
+        rich.print(data)
 
 
 @cli_entry.command()
@@ -164,7 +164,15 @@ def get_api_key():
         print(f"Email {email_address} is not valid.")
         return
 
-    response_dict = FastOpenData.get_free_api_key(email_address=email_address)
+    try:
+        response_dict = FastOpenData.get_free_api_key(email_address=email_address)
+    except FastOpenDataConnectionException as e:
+        rich.print(
+            '[red]Error: Unable to connect to the FastOpenData server.[/red] '
+            'This may indicate either a problem with the FastOpenData server, or '
+            'a problem with your internet connection.'
+        )
+        sys.exit(1)
 
     if (
         response_dict["status"] == "EXPIRE_OLD_KEY"

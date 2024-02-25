@@ -108,7 +108,6 @@ class FastOpenDataConnectionException(Exception):
     pass
 
 
-
 class FastOpenData:
     """
     The client for interacting with the FastOpenData service.
@@ -121,7 +120,7 @@ class FastOpenData:
         scheme: str = SCHEME,
         api_key: str = None,
     ) -> None:
-        self.api_key = api_key
+        self.api_key = api_key or os.environ.get("FASTOPENDATA_API_KEY", None)
         self.ip_address = ip_address
         self.port = str(port)
         self.scheme = scheme
@@ -131,6 +130,7 @@ class FastOpenData:
                 "by passing `api_key=YOUR_API_KEY`."
             )
         self.url = f"{self.scheme}://{self.ip_address}:{self.port}"
+        self.get_single_address_url = f"{self.url}/get_single_address"
 
     @classmethod
     def get_free_api_key(cls, email_address: str) -> str:
@@ -203,13 +203,20 @@ class FastOpenData:
             "Content-type": "application/json",
         }
         response = requests.get(
-            self.url,
+            self.get_single_address_url,
             params={
                 "free_form_query": free_form_query,
                 "api_key": self.api_key
             },
             headers=headers,
         )
+        try:
+            response.json()
+        except Exception as e:
+            return {
+                'success': False,
+                'detail': 'ServerError',
+            }
         if response.json().get('detail', None) == 'GeographyException':
             return {
                 'success': False,
