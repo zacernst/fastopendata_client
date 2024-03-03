@@ -222,6 +222,11 @@ class FastOpenData:
                 'success': False,
                 'detail': 'GeographyException',
             }
+        elif response.json().get('detail', None) == 'AuthorizationException':
+            return {
+                'success': False,
+                'detail': 'AuthorizationException',
+            }
         elif response.json().get('detail', None) == 'IncompleteDataException':
             return {
                 'success': False,
