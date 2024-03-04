@@ -201,12 +201,12 @@ class FastOpenData:
             )
         headers = {
             "Content-type": "application/json",
+            "x-api-key": self.api_key,
         }
         response = requests.get(
             self.get_single_address_url,
             params={
                 "free_form_query": free_form_query,
-                "api_key": self.api_key
             },
             headers=headers,
         )
