@@ -7,7 +7,7 @@ fastopendata = "fastopendata_client.cli_entry:cli_entry"
 
 [project]
 name = "fastopendata_client"
-version = "0.0.30"
+version = "0.0.31"
 authors = [
   { name="Zachary Ernst", email="zac.ernst@gmail.com" },
 ]

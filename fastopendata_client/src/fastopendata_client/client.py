@@ -127,7 +127,8 @@ class FastOpenData:
         if not self.api_key:
             raise FastOpenDataSecurityException(
                 "You must specify an API key when instantiating the `FastOpenData` class "
-                "by passing `api_key=YOUR_API_KEY`."
+                "by passing `api_key=YOUR_API_KEY` or by setting the `FASTOPENDATA_API_KEY` "
+                "environment variable."
             )
         self.url = f"{self.scheme}://{self.ip_address}:{self.port}"
         self.get_single_address_url = f"{self.url}/get_single_address"
