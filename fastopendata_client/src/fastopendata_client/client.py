@@ -108,6 +108,15 @@ class FastOpenDataConnectionException(Exception):
     pass
 
 
+class FastOpenDataRateLimitException(Exception):
+    '''
+    Raise for problems caused when the FastOpenData server
+    rate limits the client.
+    '''
+
+    pass
+
+
 class FastOpenData:
     """
     The client for interacting with the FastOpenData service.
@@ -213,7 +222,7 @@ class FastOpenData:
         )
         try:
             response.json()
-        except Exception as e:
+        except Exception as _:
             return {
                 'success': False,
                 'detail': 'ServerError',
@@ -241,6 +250,13 @@ class FastOpenData:
         try:
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
+            # This works differently from the other exceptions because we use
+            # the fastapi-limit library to rate limit the client.
+            if e.response.status_code == 429:
+                return {
+                    'success': False,
+                    'detail': 'RateLimitException',
+                }
             raise e
 
         return response.json()
@@ -514,8 +530,6 @@ def main():
         )
         sample_dataframe_data.append({"free_form_query": free_form_query})
         pprint.pprint(address)
-        # data = session.request(free_form_query)
-        # pprint.pprint(data)
     sample_dataframe = pd.DataFrame(sample_dataframe_data)
     session.append_to_dataframe(sample_dataframe, free_form_query="free_form_query")
 
