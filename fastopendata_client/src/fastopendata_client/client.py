@@ -70,7 +70,7 @@ import toml
 
 logging.basicConfig(level=logging.INFO)
 
-SCRIPT_PATH = list(pathlib.Path(__file__).parts[:-1]) + ['config.toml']
+SCRIPT_PATH = list(pathlib.Path(__file__).parts[:-1]) + ["config.toml"]
 SCRIPT_PATH = pathlib.Path(*SCRIPT_PATH)
 CONFIG = toml.load(SCRIPT_PATH)
 BATCH_SIZE = CONFIG["client"]["batch_size"]
@@ -98,19 +98,19 @@ class FastOpenDataClientException(Exception):
 
 
 class FastOpenDataConnectionException(Exception):
-    '''
+    """
     Raise for problems caused when connecting to the FastOpenData
     server.
-    '''
+    """
 
     pass
 
 
 class FastOpenDataRateLimitException(Exception):
-    '''
+    """
     Raise for problems caused when the FastOpenData server
     rate limits the client.
-    '''
+    """
 
     pass
 
@@ -144,7 +144,7 @@ class FastOpenData:
             "Content-type": "application/json",
             "x-api-key": self.api_key,
         }
-    
+
     @staticmethod
     def flatten_response_dict(response_dict: dict) -> dict:
         """
@@ -159,13 +159,16 @@ class FastOpenData:
                 column_name = ".".join([geography, attribute])
                 flat_response_dict[column_name] = value
         return flat_response_dict
-    
+
     @staticmethod
     def flatten_response_list(response_list: List[dict]) -> List[dict]:
         """
         Flatten a list of response dictionaries.
         """
-        return [FastOpenData.flatten_response_dict(response_dict) for response_dict in response_list]
+        return [
+            FastOpenData.flatten_response_dict(response_dict)
+            for response_dict in response_list
+        ]
 
     @classmethod
     def get_free_api_key(cls, email_address: str) -> str:
@@ -174,7 +177,7 @@ class FastOpenData:
 
         Args:
             email_address: Your email address.
-        
+
         Returns:
             A free API key.
         """
@@ -184,7 +187,9 @@ class FastOpenData:
         }
         try:
             response = requests.get(
-                free_api_key_url, params={"email_address": email_address}, headers=headers
+                free_api_key_url,
+                params={"email_address": email_address},
+                headers=headers,
             )
         except Exception as e:
             raise FastOpenDataConnectionException(
@@ -196,7 +201,7 @@ class FastOpenData:
             raise e
         response_dict = response.json()
         return response_dict
-    
+
     @staticmethod
     def check_request_paremeters(
         free_form_query: Optional[str] = None,
@@ -219,7 +224,7 @@ class FastOpenData:
             )
         return True
 
-    @property 
+    @property
     def api_spec(self) -> dict:
         """
         Get the API specification from the FastOpenData server.
@@ -228,20 +233,22 @@ class FastOpenData:
         response = requests.get(api_spec_url)
         response.raise_for_status()
         return response.json()
-    
+
     @property
     def geography_columns_dict(self) -> dict:
         api_spec = self.api_spec
         geography_columns_dict = {}
-        for key, config in api_spec['components']['schemas']['FastOpenDataResponse']['properties'].items():
-            key_path = config['allOf'][0]['$ref'].split('/')[1:]
+        for key, config in api_spec["components"]["schemas"]["FastOpenDataResponse"][
+            "properties"
+        ].items():
+            key_path = config["allOf"][0]["$ref"].split("/")[1:]
             c = api_spec
             for subkey in key_path:
                 c = c[subkey]
-            properties = sorted(list(c['properties'].keys()))
+            properties = sorted(list(c["properties"].keys()))
             geography_columns_dict[key] = properties
         return geography_columns_dict
-    
+
     @property
     def geography_columns_list(self) -> List[str]:
         column_list = []
@@ -292,18 +299,18 @@ class FastOpenData:
         )
         FastOpenData.check_response(response)
         return response.json()
-    
+
     @classmethod
     def check_response(cls, response: requests.Response) -> dict:
-        '''
+        """
         Check that the response from the FastOpenData server is valid.
-        '''
+        """
         try:
             response.json()
         except Exception as _:
             return {
-                'success': False,
-                'detail': 'ServerError',
+                "success": False,
+                "detail": "ServerError",
             }
 
         try:
@@ -313,33 +320,34 @@ class FastOpenData:
             # the fastapi-limit library to rate limit the client.
             if e.response.status_code == 429:
                 return {
-                    'success': False,
-                    'detail': 'RateLimitException',
+                    "success": False,
+                    "detail": "RateLimitException",
                 }
             raise e
 
         def _test_single_response(response_dict: Dict) -> bool:
-            if response_dict.get('detail', None) == 'GeographyException':
+            if response_dict.get("detail", None) == "GeographyException":
                 return {
-                    'success': False,
-                    'detail': 'GeographyException',
+                    "success": False,
+                    "detail": "GeographyException",
                 }
-            elif response_dict.get('detail', None) == 'AuthorizationException':
+            elif response_dict.get("detail", None) == "AuthorizationException":
                 return {
-                    'success': False,
-                    'detail': 'AuthorizationException',
+                    "success": False,
+                    "detail": "AuthorizationException",
                 }
-            elif response_dict.get('detail', None) == 'IncompleteDataException':
+            elif response_dict.get("detail", None) == "IncompleteDataException":
                 return {
-                    'success': False,
-                    'detail': 'IncompleteDataException',
+                    "success": False,
+                    "detail": "IncompleteDataException",
                 }
-            elif response_dict.get('detail', None) == 'NominatimQueryException':
+            elif response_dict.get("detail", None) == "NominatimQueryException":
                 return {
-                    'success': False,
-                    'detail': 'NominatimQueryException',
+                    "success": False,
+                    "detail": "NominatimQueryException",
                 }
             return True
+
         json_output = response.json()
         if isinstance(json_output, list):
             for response_dict in json_output:
@@ -349,7 +357,7 @@ class FastOpenData:
             else:
                 pass
         return True
-        
+
     def append_to_dataframe(
         self,
         df: pd.DataFrame,
@@ -365,7 +373,7 @@ class FastOpenData:
         Convert the DataFrame to a list of dictionaries and send
         the list to the batch endpoint. Append the resulting data
         to the DataFrame.
-        
+
         Args:
             df: A Pandas DataFrame.
             free_form_query_column: The free-form query to use for matching.
@@ -374,17 +382,18 @@ class FastOpenData:
             city_column: The city.
             state_column: The state.
             zip_code_column: The zip code.
-        
+
         Returns:
             None.
-        
+
         Raises:
             FastOpenDataClientException: If the `free_form_query` and
                 `structured_query` arguments are both specified, or neither
                 is specified, or if the DataFrame is empty.
         """
         df_dict = df.to_dict(orient="records")
-        batch_response = self.send_batch(df_dict,
+        batch_response = self.send_batch(
+            df_dict,
             free_form_query_column=free_form_query_column,
             address1_column=address1_column,
             address2_column=address2_column,
@@ -393,7 +402,7 @@ class FastOpenData:
             zip_code_column=zip_code_column,
             batch_size=batch_size,
         )
-        batch_response = FastOpenData.flatten_response_list(batch_response) 
+        batch_response = FastOpenData.flatten_response_list(batch_response)
         df_response = pd.DataFrame(batch_response)
         df_combined = pd.concat([df, df_response], axis=1)
         return df_combined
@@ -420,7 +429,7 @@ class FastOpenData:
             while batch:
                 sub_batch = batch[:batch_size]
                 batch = batch[batch_size:]
-                
+
                 response = requests.post(
                     self.get_batch_address_url,
                     json={
@@ -440,7 +449,7 @@ class FastOpenData:
                 total_response += response.json()
                 pbar.advance(task, len(sub_batch))
         return total_response
-    
+
     def append_to_csv(
         self,
         input_csv: str = "",
@@ -494,7 +503,9 @@ class FastOpenData:
                             zip_code_column=zip_code_column,
                             batch_size=batch_size,
                         )
-                        batch_response = FastOpenData.flatten_response_list(batch_response)
+                        batch_response = FastOpenData.flatten_response_list(
+                            batch_response
+                        )
                         for response in batch_response:
                             for geography_key in geography_keys:
                                 for data_point_name, data_point_value in response[
