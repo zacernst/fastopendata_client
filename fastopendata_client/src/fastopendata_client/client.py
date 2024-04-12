@@ -59,16 +59,14 @@ names for structured address data, but not both. Doing so will raise an exceptio
 import logging
 import os
 import pathlib
-import pprint
 import sys
 from csv import DictReader, DictWriter
 from typing import Dict, List, Optional
 
 import pandas as pd
-import random_address
 import requests
+from rich.progress import Progress
 import toml
-from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
 
@@ -141,6 +139,33 @@ class FastOpenData:
             )
         self.url = f"{self.scheme}://{self.ip_address}:{self.port}"
         self.get_single_address_url = f"{self.url}/get_single_address"
+        self.get_batch_address_url = f"{self.url}/batch"
+        self.request_headers = {
+            "Content-type": "application/json",
+            "x-api-key": self.api_key,
+        }
+    
+    @staticmethod
+    def flatten_response_dict(response_dict: dict) -> dict:
+        """
+        Flatten the keys for the `response_dict` so that
+        the values can be appended to the DataFrame.
+        """
+        flat_response_dict = {}
+        for geography, subdict in response_dict.items():
+            if not subdict:
+                continue
+            for attribute, value in subdict.items():
+                column_name = ".".join([geography, attribute])
+                flat_response_dict[column_name] = value
+        return flat_response_dict
+    
+    @staticmethod
+    def flatten_response_list(response_list: List[dict]) -> List[dict]:
+        """
+        Flatten a list of response dictionaries.
+        """
+        return [FastOpenData.flatten_response_dict(response_dict) for response_dict in response_list]
 
     @classmethod
     def get_free_api_key(cls, email_address: str) -> str:
@@ -171,6 +196,58 @@ class FastOpenData:
             raise e
         response_dict = response.json()
         return response_dict
+    
+    @staticmethod
+    def check_request_paremeters(
+        free_form_query: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        address1: Optional[str] = None,
+        address2: Optional[str] = None,
+        zip_code: Optional[str] = None,
+    ) -> bool:
+        if not (free_form_query or city or state or address1 or zip_code):
+            raise FastOpenDataClientException(
+                "Must include either `free_form_query` or some combination of "
+                "`city`, `state`, `address` and `zip_code` when making a request."
+            )
+        if free_form_query and (city or state or address1 or address2 or zip_code):
+            raise FastOpenDataClientException(
+                "Request included both `free_form_query` and `city`, `state`, "
+                "`address`, or `zip_code`, which is not permitted. Choose either "
+                "`free_form_query` or the various address fields."
+            )
+        return True
+
+    @property 
+    def api_spec(self) -> dict:
+        """
+        Get the API specification from the FastOpenData server.
+        """
+        api_spec_url = f"{self.url}/openapi.json"
+        response = requests.get(api_spec_url)
+        response.raise_for_status()
+        return response.json()
+    
+    @property
+    def geography_columns_dict(self) -> dict:
+        api_spec = self.api_spec
+        geography_columns_dict = {}
+        for key, config in api_spec['components']['schemas']['FastOpenDataResponse']['properties'].items():
+            key_path = config['allOf'][0]['$ref'].split('/')[1:]
+            c = api_spec
+            for subkey in key_path:
+                c = c[subkey]
+            properties = sorted(list(c['properties'].keys()))
+            geography_columns_dict[key] = properties
+        return geography_columns_dict
+    
+    @property
+    def geography_columns_list(self) -> List[str]:
+        column_list = []
+        for key, value in self.geography_columns_dict.items():
+            column_list += [f"{key}.{subkey}" for subkey in value]
+        return column_list
 
     def request(
         self,
@@ -198,28 +275,29 @@ class FastOpenData:
         Raises:
             FastOpenDataClientException: If the request fails.
         """
-        if not (free_form_query or city or state or address1 or zip_code):
-            raise FastOpenDataClientException(
-                "Must include either `free_form_query` or some combination of "
-                "`city`, `state`, `address` and `zip_code` when making a request."
-            )
-        if free_form_query and (city or state or address1 or address2 or zip_code):
-            raise FastOpenDataClientException(
-                "Request included both `free_form_query` and `city`, `state`, "
-                "`address`, or `zip_code`, which is not permitted. Choose either "
-                "`free_form_query` or the various address fields."
-            )
-        headers = {
-            "Content-type": "application/json",
-            "x-api-key": self.api_key,
-        }
+        FastOpenData.check_request_paremeters(
+            free_form_query=free_form_query,
+            city=city,
+            state=state,
+            address1=address1,
+            address2=address2,
+            zip_code=zip_code,
+        )
         response = requests.get(
             self.get_single_address_url,
             params={
                 "free_form_query": free_form_query,
             },
-            headers=headers,
+            headers=self.request_headers,
         )
+        FastOpenData.check_response(response)
+        return response.json()
+    
+    @classmethod
+    def check_response(cls, response: requests.Response) -> dict:
+        '''
+        Check that the response from the FastOpenData server is valid.
+        '''
         try:
             response.json()
         except Exception as _:
@@ -227,26 +305,7 @@ class FastOpenData:
                 'success': False,
                 'detail': 'ServerError',
             }
-        if response.json().get('detail', None) == 'GeographyException':
-            return {
-                'success': False,
-                'detail': 'GeographyException',
-            }
-        elif response.json().get('detail', None) == 'AuthorizationException':
-            return {
-                'success': False,
-                'detail': 'AuthorizationException',
-            }
-        elif response.json().get('detail', None) == 'IncompleteDataException':
-            return {
-                'success': False,
-                'detail': 'IncompleteDataException',
-            }
-        elif response.json().get('detail', None) == 'NominatimQueryException':
-            return {
-                'success': False,
-                'detail': 'NominatimQueryException',
-            }
+
         try:
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
@@ -259,153 +318,227 @@ class FastOpenData:
                 }
             raise e
 
-        return response.json()
-
+        def _test_single_response(response_dict: Dict) -> bool:
+            if response_dict.get('detail', None) == 'GeographyException':
+                return {
+                    'success': False,
+                    'detail': 'GeographyException',
+                }
+            elif response_dict.get('detail', None) == 'AuthorizationException':
+                return {
+                    'success': False,
+                    'detail': 'AuthorizationException',
+                }
+            elif response_dict.get('detail', None) == 'IncompleteDataException':
+                return {
+                    'success': False,
+                    'detail': 'IncompleteDataException',
+                }
+            elif response_dict.get('detail', None) == 'NominatimQueryException':
+                return {
+                    'success': False,
+                    'detail': 'NominatimQueryException',
+                }
+            return True
+        json_output = response.json()
+        if isinstance(json_output, list):
+            for response_dict in json_output:
+                response_test = _test_single_response(response_dict)
+                if not response_test:
+                    return response_test
+            else:
+                pass
+        return True
+        
     def append_to_dataframe(
         self,
         df: pd.DataFrame,
-        free_form_query: Optional[str] = "free_form_query",
-        address1: Optional[str] = "address1",
-        address2: Optional[str] = "address2",
-        city: Optional[str] = "city",
-        state: Optional[str] = "state",
-        zip_code: Optional[str] = "zip_code",
-        progressbar: Optional[bool] = True,
-    ) -> None:
+        free_form_query_column: Optional[str] = "free_form_query",
+        address1_column: Optional[str] = "address1",
+        address2_column: Optional[str] = "address2",
+        city_column: Optional[str] = "city",
+        state_column: Optional[str] = "state",
+        zip_code_column: Optional[str] = "zip_code",
+        batch_size: Optional[int] = BATCH_SIZE,
+    ) -> pd.DataFrame:
         """
-        Call FastOpenData for each row in the DataFrame. Append
-        new columns to the DataFrame containing the resulting
-        data. We'll want to have a batch endpoint eventually.
-
+        Convert the DataFrame to a list of dictionaries and send
+        the list to the batch endpoint. Append the resulting data
+        to the DataFrame.
+        
         Args:
             df: A Pandas DataFrame.
-            free_form_query: The free-form query to use for matching.
-            address1: The address line 1.
-            address2: The address line 2.
-            city: The city.
-            state: The state.
-            zip_code: The zip code.
-
+            free_form_query_column: The free-form query to use for matching.
+            address1_column: The address line 1.
+            address2_column: The address line 2.
+            city_column: The city.
+            state_column: The state.
+            zip_code_column: The zip code.
+        
         Returns:
             None.
-
+        
         Raises:
             FastOpenDataClientException: If the `free_form_query` and
                 `structured_query` arguments are both specified, or neither
                 is specified, or if the DataFrame is empty.
         """
-        column_list = list(df.columns)
-        match_mode = None
-        if free_form_query in column_list:
-            match_mode = "FREE_FORM_QUERY"
-        elif all(
-            column_name in column_list
-            for column_name in [
-                address1,
-                city,
-                state,
-                zip_code,
-            ]
-        ):
-            match_mode = "STRUCTURED_QUERY"
-        else:
-            pass
-        if not match_mode:
-            raise FastOpenDataClientException(
-                "Must specify match mode for data append."
-            )
-        elif match_mode == "STRUCTURED_QUERY":
-            raise FastOpenDataClientException("Haven't gotten to this yet.")
-        if df.empty:
-            raise FastOpenDataClientException(
-                "Passed an empty DataFrame to append function."
-            )
-        row_counter = 0
-
-        # We waste a few nanoseconds here, but it's easier for
-        # my addled mind to track with this private function.
-        def _flatten_response(response_dict: dict) -> dict:
-            """
-            Flatten the keys for the `response_dict` so that
-            the values can be appended to the DataFrame.
-            """
-            flat_response_dict = {}
-            for geography, subdict in response_dict.items():
-                if not subdict:
-                    continue
-                for attribute, value in subdict.items():
-                    column_name = ".".join([geography, attribute])
-                    flat_response_dict[column_name] = value
-            return flat_response_dict
-
-        if progressbar:
-            pbar = tqdm(total=df.shape[0])
-        for index, row in df.iterrows():
-            if progressbar:
-                pbar.update(1)
-            if match_mode == "FREE_FORM_QUERY":
-                request_params = {
-                    "free_form_query": row[free_form_query],
-                }
-            elif match_mode == "STRUCTURED_QUERY":
-                request_params = {
-                    "address1": row[address1],
-                    "address2": row[address2],
-                    "city": row[city],
-                    "state": row[state],
-                    "zip_code": row[zip_code],
-                }
-            else:
-                raise Exception("This should never happen.")
-            response_dict = self.request(**request_params)
-            if response_dict is None:
-                continue
-            flat_response = _flatten_response(response_dict)
-            if row_counter == 0:
-                # First row is special because we need to get all
-                # the column names.
-                data_column_list = [column_name for column_name in flat_response.keys()]
-                # Finally add the columns with `np.NaT` values everywhere
-                df_to_concat = pd.DataFrame(
-                    {
-                        column_name: [pd.NaT for _ in range(df.shape[1])]
-                        for column_name in data_column_list
-                    }
-                )
-                pd.concat([df, df_to_concat], axis=1)
-            # Now we can continue with the rest of the rows.
-            row_counter += 1
-            for column_name, value in flat_response.items():
-                df.loc[index, column_name] = value
+        df_dict = df.to_dict(orient="records")
+        batch_response = self.send_batch(df_dict,
+            free_form_query_column=free_form_query_column,
+            address1_column=address1_column,
+            address2_column=address2_column,
+            city_column=city_column,
+            state_column=state_column,
+            zip_code_column=zip_code_column,
+            batch_size=batch_size,
+        )
+        batch_response = FastOpenData.flatten_response_list(batch_response) 
+        df_response = pd.DataFrame(batch_response)
+        df_combined = pd.concat([df, df_response], axis=1)
+        return df_combined
 
     def send_batch(
         self,
         batch: List[Dict],
-        free_form_query: Optional[str] = None,
-        address1: Optional[str] = None,
-        address2: Optional[str] = None,
-        city: Optional[str] = None,
-        state: Optional[str] = None,
-        zip_code: Optional[str] = None,
+        free_form_query_column: Optional[str] = None,
+        address1_column: Optional[str] = None,
+        address2_column: Optional[str] = None,
+        city_column: Optional[str] = None,
+        state_column: Optional[str] = None,
+        zip_code_column: Optional[str] = None,
+        batch_size: Optional[int] = BATCH_SIZE,
     ) -> List[Dict]:
         """
         Rename keys to match `free_form_query`, etc. Then send the
         list of dictionaries to the batch endpoint.
         """
-        for address in batch:
-            data = self.request(
-                free_form_query=address.get(free_form_query, None),
-                address1=address.get(address1, None),
-                address2=address.get(address2, None),
-                city=address.get(city, None),
-                state=address.get(state, None),
-                zip_code=address.get(zip_code, None),
-            )
-            data = {"_fod_data_response": data}
-            address.update(data)  # in-place updating (check this)
-        return batch
-
+        total_response: List[dict] = []
+        total_batch_size = len(batch)
+        with Progress(transient=True, expand=False) as pbar:
+            task = pbar.add_task("Sending batch", total=total_batch_size)
+            while batch:
+                sub_batch = batch[:batch_size]
+                batch = batch[batch_size:]
+                
+                response = requests.post(
+                    self.get_batch_address_url,
+                    json={
+                        "batch": sub_batch,
+                    },
+                    params={
+                        "free_form_query_column": free_form_query_column,
+                        "address1_column": address1_column,
+                        "address2_column": address2_column,
+                        "city_column": city_column,
+                        "state_column": state_column,
+                        "zip_code_column": zip_code_column,
+                    },
+                    headers=self.request_headers,
+                )
+                FastOpenData.check_response(response)
+                total_response += response.json()
+                pbar.advance(task, len(sub_batch))
+        return total_response
+    
     def append_to_csv(
+        self,
+        input_csv: str = "",
+        output_csv: str = "",
+        free_form_query_column: Optional[str] = None,
+        address1_column: Optional[str] = None,
+        address2_column: Optional[str] = None,
+        city_column: Optional[str] = None,
+        state_column: Optional[str] = None,
+        zip_code_column: Optional[str] = None,
+        batch_size: Optional[int] = BATCH_SIZE,
+    ):
+        """
+        Append data from FastOpenData to an existing CSV file.
+        """
+        if not free_form_query_column:
+            print("Need to specify column containing address information")
+            sys.exit(1)
+        if not input_csv:
+            print("You must provide the path of a CSV file.")
+            sys.exit(1)
+        if not output_csv:
+            print("You must provide the path for the output CSV.")
+            sys.exit(1)
+        if not os.path.isfile(input_csv):
+            print(f"CSV file {input_csv} does not exist.")
+            sys.exit(1)
+        if os.path.isfile(output_csv):
+            print(f"Output file {output_csv} already exists.")
+            sys.exit(1)
+
+        counter = 0
+
+        with open(output_csv, "w") as o:
+            with open(input_csv, "r") as f:
+                writer = DictWriter(o, fieldnames=[])
+                reader = DictReader(f)
+                input_csv_column_list = reader.fieldnames
+                batch = []
+                for row in reader:
+                    counter += 1
+                    batch.append(row)
+                    if len(batch) == BATCH_SIZE:
+                        batch_response = self.send_batch(
+                            batch,
+                            free_form_query_column=free_form_query_column,
+                            address1_column=address1_column,
+                            address2_column=address2_column,
+                            city_column=city_column,
+                            state_column=state_column,
+                            zip_code_column=zip_code_column,
+                            batch_size=batch_size,
+                        )
+                        batch_response = FastOpenData.flatten_response_list(batch_response)
+                        for response in batch_response:
+                            for geography_key in geography_keys:
+                                for data_point_name, data_point_value in response[
+                                    "_fod_data_response"
+                                ][geography_key].items():
+                                    flattened_key = f"{geography_key}.{data_point_name}"
+                                    response[flattened_key] = data_point_value
+                            del response["_fod_data_response"]
+                        for batch_item, response_item in zip(batch, batch_response):
+                            batch_item.update(response_item)
+                        response_list += batch
+                        batch = []
+                if batch:
+                    batch_response = self.send_batch(
+                        batch,
+                        free_form_query=free_form_query,
+                        address1=address1,
+                        address2=address2,
+                        city=city,
+                        state=state,
+                        zip_code=zip_code,
+                    )
+                    for response in batch_response:
+                        for geography_key in geography_keys:
+                            for data_point_name, data_point_value in response[
+                                "_fod_data_response"
+                            ][geography_key].items():
+                                flattened_key = f"{geography_key}.{data_point_name}"
+                                response[flattened_key] = data_point_value
+                        del response["_fod_data_response"]
+                    for batch_item, response_item in zip(batch, batch_response):
+                        batch_item.update(response_item)
+                    response_list += batch
+                    batch = []
+
+        # TODO: Change this to stream rows one by one
+        with open(output_csv, "w") as o:
+            fieldnames = list(response_list[0].keys())
+            output_csv = DictWriter(o, fieldnames=fieldnames)
+            output_csv.writeheader()
+            for row in response_list:
+                output_csv.writerow(row)
+
+    def append_to_csv_bak(
         self,
         input_csv: str = "",
         output_csv: str = "",
@@ -415,6 +548,7 @@ class FastOpenData:
         city: Optional[str] = None,
         state: Optional[str] = None,
         zip_code: Optional[str] = None,
+        batch_size: Optional[int] = BATCH_SIZE,
     ):
         """
         Append data from FastOpenData to an existing CSV file.
@@ -512,26 +646,7 @@ def main():
     """
     Just for testing.
     """
-    session = FastOpenData(api_key="foobar")
-    data = session.request(free_form_query="1984 Lower Hawthorne Trail")
-    pprint.pprint(data)
-    sample_dataframe_data = []
-    for _ in range(100):
-        address = random_address.real_random_address_by_state("GA")
-        # Commented out for development -- dev Nominatim has only Georgia
-        # free_form_query = ", ".join(
-        #     [address["address1"], address["address2"], address["city"]]
-        # )
-        free_form_query = ", ".join(
-            [
-                address["address1"],
-                address["address2"],
-            ]
-        )
-        sample_dataframe_data.append({"free_form_query": free_form_query})
-        pprint.pprint(address)
-    sample_dataframe = pd.DataFrame(sample_dataframe_data)
-    session.append_to_dataframe(sample_dataframe, free_form_query="free_form_query")
+    pass
 
 
 if __name__ == "__main__":
