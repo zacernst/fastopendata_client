@@ -193,7 +193,7 @@ class FastOpenData:
             )
         except Exception as e:
             raise FastOpenDataConnectionException(
-                "Problem connecting to the FastOpenData server."
+                f"Problem connecting to the FastOpenData server. {e}"
             )
         try:
             response.raise_for_status()
@@ -211,6 +211,23 @@ class FastOpenData:
         address2: Optional[str] = None,
         zip_code: Optional[str] = None,
     ) -> bool:
+        '''
+        Check that the request parameters are valid.
+
+        Args:
+            free_form_query: The free-form query to use for matching.
+            city: The city.
+            state: The state.
+            address1: The address line 1.
+            address2: The address line 2.
+            zip_code: The zip code.
+
+        Returns:
+            True if the request parameters are valid.
+        
+        Raises:
+            FastOpenDataClientException: If the request parameters are invalid.
+        '''
         if not (free_form_query or city or state or address1 or zip_code):
             raise FastOpenDataClientException(
                 "Must include either `free_form_query` or some combination of "
@@ -227,7 +244,9 @@ class FastOpenData:
     @property
     def api_spec(self) -> dict:
         """
-        Get the API specification from the FastOpenData server.
+        Get the API specification from the FastOpenData server. We do this because
+        the API specification is subject to change and we want to make sure that
+        the client is always in sync with the server.
         """
         api_spec_url = f"{self.url}/openapi.json"
         response = requests.get(api_spec_url)
@@ -236,6 +255,9 @@ class FastOpenData:
 
     @property
     def geography_columns_dict(self) -> dict:
+        """
+        Get the geography columns from the API specification.
+        """
         api_spec = self.api_spec
         geography_columns_dict = {}
         for key, config in api_spec["components"]["schemas"]["FastOpenDataResponse"][
@@ -251,6 +273,9 @@ class FastOpenData:
 
     @property
     def geography_columns_list(self) -> List[str]:
+        """
+        Get the geography columns from the API specification as a list.
+        """
         column_list = []
         for key, value in self.geography_columns_dict.items():
             column_list += [f"{key}.{subkey}" for subkey in value]
@@ -266,7 +291,7 @@ class FastOpenData:
         zip_code: Optional[str] = None,
     ) -> dict:
         """
-        Make a request from the FastOpenData service.
+        Make a request for a single address from the FastOpenData service.
 
         Args:
             free_form_query: The free-form query to use for matching.
@@ -417,6 +442,7 @@ class FastOpenData:
         state_column: Optional[str] = None,
         zip_code_column: Optional[str] = None,
         batch_size: Optional[int] = BATCH_SIZE,
+        progress_bar: Optional[bool] = True,
     ) -> List[Dict]:
         """
         Rename keys to match `free_form_query`, etc. Then send the
@@ -424,29 +450,31 @@ class FastOpenData:
         """
         total_response: List[dict] = []
         total_batch_size = len(batch)
-        with Progress(transient=True, expand=False) as pbar:
+        if progress_bar:
+            pbar = Progress(transient=True, expand=False)
             task = pbar.add_task("Sending batch", total=total_batch_size)
-            while batch:
-                sub_batch = batch[:batch_size]
-                batch = batch[batch_size:]
+        while batch:
+            sub_batch = batch[:batch_size]
+            batch = batch[batch_size:]
 
-                response = requests.post(
-                    self.get_batch_address_url,
-                    json={
-                        "batch": sub_batch,
-                    },
-                    params={
-                        "free_form_query_column": free_form_query_column,
-                        "address1_column": address1_column,
-                        "address2_column": address2_column,
-                        "city_column": city_column,
-                        "state_column": state_column,
-                        "zip_code_column": zip_code_column,
-                    },
-                    headers=self.request_headers,
-                )
-                FastOpenData.check_response(response)
-                total_response += response.json()
+            response = requests.post(
+                self.get_batch_address_url,
+                json={
+                    "batch": sub_batch,
+                },
+                params={
+                    "free_form_query_column": free_form_query_column,
+                    "address1_column": address1_column,
+                    "address2_column": address2_column,
+                    "city_column": city_column,
+                    "state_column": state_column,
+                    "zip_code_column": zip_code_column,
+                },
+                headers=self.request_headers,
+            )
+            FastOpenData.check_response(response)
+            total_response += response.json()
+            if progress_bar:
                 pbar.advance(task, len(sub_batch))
         return total_response
 
@@ -483,174 +511,50 @@ class FastOpenData:
 
         counter = 0
 
+        def _write_batch(_writer, _batch: List[dict]) -> None:
+            '''
+            Private method to write a batch of rows to the CSV file.
+            '''
+            batch_response = self.send_batch(
+                _batch,
+                free_form_query_column=free_form_query_column,
+                address1_column=address1_column,
+                address2_column=address2_column,
+                city_column=city_column,
+                state_column=state_column,
+                zip_code_column=zip_code_column,
+                batch_size=batch_size,
+                progress_bar=False,
+            )
+            batch_response = FastOpenData.flatten_response_list(batch_response)
+            for index, response in enumerate(batch_response):
+                response.update(_batch[index])
+                _writer.writerow(response)
+        csv_file = open(input_csv, "r")
+        for index, _ in enumerate(csv_file):
+            pass
+        total_batch_size = index
+        csv_file.close()
         with open(output_csv, "w") as o:
             with open(input_csv, "r") as f:
-                writer = DictWriter(o, fieldnames=[])
-                reader = DictReader(f)
-                input_csv_column_list = reader.fieldnames
-                batch = []
-                for row in reader:
-                    counter += 1
-                    batch.append(row)
-                    if len(batch) == BATCH_SIZE:
-                        batch_response = self.send_batch(
-                            batch,
-                            free_form_query_column=free_form_query_column,
-                            address1_column=address1_column,
-                            address2_column=address2_column,
-                            city_column=city_column,
-                            state_column=state_column,
-                            zip_code_column=zip_code_column,
-                            batch_size=batch_size,
-                        )
-                        batch_response = FastOpenData.flatten_response_list(
-                            batch_response
-                        )
-                        for response in batch_response:
-                            for geography_key in geography_keys:
-                                for data_point_name, data_point_value in response[
-                                    "_fod_data_response"
-                                ][geography_key].items():
-                                    flattened_key = f"{geography_key}.{data_point_name}"
-                                    response[flattened_key] = data_point_value
-                            del response["_fod_data_response"]
-                        for batch_item, response_item in zip(batch, batch_response):
-                            batch_item.update(response_item)
-                        response_list += batch
-                        batch = []
-                if batch:
-                    batch_response = self.send_batch(
-                        batch,
-                        free_form_query=free_form_query,
-                        address1=address1,
-                        address2=address2,
-                        city=city,
-                        state=state,
-                        zip_code=zip_code,
+                with Progress(transient=True, expand=False) as pbar:
+                    task = pbar.add_task("Appending", total=total_batch_size)
+                    reader = DictReader(f)
+                    input_csv_column_list = reader.fieldnames
+                    writer = DictWriter(
+                        o, fieldnames=self.geography_columns_list + input_csv_column_list
                     )
-                    for response in batch_response:
-                        for geography_key in geography_keys:
-                            for data_point_name, data_point_value in response[
-                                "_fod_data_response"
-                            ][geography_key].items():
-                                flattened_key = f"{geography_key}.{data_point_name}"
-                                response[flattened_key] = data_point_value
-                        del response["_fod_data_response"]
-                    for batch_item, response_item in zip(batch, batch_response):
-                        batch_item.update(response_item)
-                    response_list += batch
+                    writer.writeheader()
                     batch = []
-
-        # TODO: Change this to stream rows one by one
-        with open(output_csv, "w") as o:
-            fieldnames = list(response_list[0].keys())
-            output_csv = DictWriter(o, fieldnames=fieldnames)
-            output_csv.writeheader()
-            for row in response_list:
-                output_csv.writerow(row)
-
-    def append_to_csv_bak(
-        self,
-        input_csv: str = "",
-        output_csv: str = "",
-        free_form_query: Optional[str] = None,
-        address1: Optional[str] = None,
-        address2: Optional[str] = None,
-        city: Optional[str] = None,
-        state: Optional[str] = None,
-        zip_code: Optional[str] = None,
-        batch_size: Optional[int] = BATCH_SIZE,
-    ):
-        """
-        Append data from FastOpenData to an existing CSV file.
-        """
-        if not free_form_query:
-            print("Need to specify column containing address information")
-            sys.exit(1)
-        if not input_csv:
-            print("You must provide the path of a CSV file.")
-            sys.exit(1)
-        if not output_csv:
-            print("You must provide the path for the output CSV.")
-            sys.exit(1)
-        if not os.path.isfile(input_csv):
-            print(f"CSV file {input_csv} does not exist.")
-            sys.exit(1)
-        if os.path.isfile(output_csv):
-            print(f"Output file {output_csv} already exists.")
-            sys.exit(1)
-
-        counter = 0
-        geography_keys = [
-            "cbsa_2013",
-            "census_block_group_2019",
-            "congressional_district",
-            "county",
-            "puma",
-            "school_district",
-            "state",
-            "tract",
-        ]
-
-        with open(input_csv, "r") as f:
-            reader = DictReader(f)
-            batch = []
-            response_list = []
-            for row in reader:
-                counter += 1
-                batch.append(row)
-                if len(batch) % BATCH_SIZE == 0:
-                    batch_response = self.send_batch(
-                        batch,
-                        free_form_query=free_form_query,
-                        address1=address1,
-                        address2=address2,
-                        city=city,
-                        state=state,
-                        zip_code=zip_code,
-                    )
-                    for response in batch_response:
-                        for geography_key in geography_keys:
-                            for data_point_name, data_point_value in response[
-                                "_fod_data_response"
-                            ][geography_key].items():
-                                flattened_key = f"{geography_key}.{data_point_name}"
-                                response[flattened_key] = data_point_value
-                        del response["_fod_data_response"]
-                    for batch_item, response_item in zip(batch, batch_response):
-                        batch_item.update(response_item)
-                    response_list += batch
-                    batch = []
+                    for row in reader:
+                        counter += 1
+                        pbar.advance(task, 1)
+                        batch.append(row)
+                        if len(batch) == 10:
+                            _write_batch(writer, batch)
+                            batch = []
             if batch:
-                batch_response = self.send_batch(
-                    batch,
-                    free_form_query=free_form_query,
-                    address1=address1,
-                    address2=address2,
-                    city=city,
-                    state=state,
-                    zip_code=zip_code,
-                )
-                for response in batch_response:
-                    for geography_key in geography_keys:
-                        for data_point_name, data_point_value in response[
-                            "_fod_data_response"
-                        ][geography_key].items():
-                            flattened_key = f"{geography_key}.{data_point_name}"
-                            response[flattened_key] = data_point_value
-                    del response["_fod_data_response"]
-                for batch_item, response_item in zip(batch, batch_response):
-                    batch_item.update(response_item)
-                response_list += batch
-                batch = []
-
-        # TODO: Change this to stream rows one by one
-        with open(output_csv, "w") as o:
-            fieldnames = list(response_list[0].keys())
-            output_csv = DictWriter(o, fieldnames=fieldnames)
-            output_csv.writeheader()
-            for row in response_list:
-                output_csv.writerow(row)
+                _write_batch(writer, batch)
 
 
 def main():
