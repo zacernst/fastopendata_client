@@ -18,7 +18,6 @@ logging.basicConfig(level=logging.INFO)
 
 FIGLET = Figlet(font="slant")
 BANNER = FIGLET.renderText("FastOpenData")
-ADDRESS_DATA_BATCH_SIZE = 100
 
 
 def check_api_key(api_key):
@@ -53,7 +52,6 @@ def cli_entry():
     or append data to an existing CSV file.
 
     """
-
 
 
 @cli_entry.command()
@@ -91,7 +89,7 @@ def get(
 
     if _too_many_addresses_provided():
         print(
-            "You can use either --free-form-query or the structured address "
+            "You can use either `--free-form-query` or the structured address "
             "parameters, but not both."
         )
         sys.exit(1)
@@ -124,9 +122,9 @@ def get(
 @click.option("--zip-code", default=None, help="zip code")
 @click.option("--api-key", default=None, help="API key")
 def csv(
-    api_key,
-    input_csv,
-    output_csv,
+    api_key: str,
+    input_csv: str,
+    output_csv: str,
     free_form_query,
     address1,
     address2,
@@ -143,12 +141,12 @@ def csv(
     client.append_to_csv(
         input_csv=input_csv,
         output_csv=output_csv,
-        free_form_query=free_form_query,
-        address1=address1,
-        address2=address2,
-        city=city,
-        state=state,
-        zip_code=zip_code,
+        free_form_query_column=free_form_query,
+        address1_column=address1,
+        address2_column=address2,
+        city_column=city,
+        state_column=state,
+        zip_code_column=zip_code,
     )
 
 
